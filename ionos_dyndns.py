@@ -10,6 +10,9 @@ import requests  # Talk to the API
 import json  # Work with the API responses
 from argparse import ArgumentParser, RawDescriptionHelpFormatter  # Commandline argument parsing
 
+import sys
+import logging
+logging.basicConfig(stream=sys.stdout, format="%(asctime)s %(message)s", datefmt="%B %d %H:%M:%S", level=logging.INFO)
 
 def parse_cmdline_args():
     argparser = ArgumentParser(
@@ -71,7 +74,7 @@ def parse_cmdline_args():
 
 # Map args to global variables
 args = parse_cmdline_args()
-fqdn = args.fqdn
+fqdn = args.fqdn.lower()
 api_url = "https://api.hosting.ionos.com/dns/v1/zones"
 api_key_publicprefix = args.api_prefix
 api_key_secret = args.api_secret
@@ -90,35 +93,39 @@ def main():
     records_to_create = []
     records_to_update = []
 
-    # Code duplication, could use some refactoring but I don't have time for this atm
+    # Code duplication. Could use some refactoring but I don't have time for this atm
     if args.A:
         ipv4_address = get_ipv4_address()
-        print("Public IPv4: " + ipv4_address)
+        logging.info("Public IPv4: " + ipv4_address)
         if filter_records_by_type(all_records, "A"):
             if filter_records_by_type(all_records, "A")[0]["content"] == ipv4_address:
-                print("A record is up-to-date")
+                logging.info("A record is up-to-date")
             else:
-                print("A record is outdated")
+                logging.info("A record is outdated")
                 records_to_update.append(
                     new_record(fqdn, "A", ipv4_address, 60))
         else:
-            print("No A record found")
+            logging.info("No A record found")
             records_to_create.append(new_record(fqdn, "A", ipv4_address, 60))
 
+    # Good god this is ugly. I hate myself for writing this. This really needs refactoring...
     if args.AAAA:
         ipv6_address = get_ipv6_address(interface)
-        print("Public IPv6: " + ipv6_address)
-        if filter_records_by_type(all_records, "AAAA"):
-            if filter_records_by_type(all_records, "AAAA")[0]["content"] == ipv6_address:
-                print("AAAA record is up-to-date")
+        if ipv6_address != "":
+            logging.info("Public IPv6: " + ipv6_address)
+            if filter_records_by_type(all_records, "AAAA"):
+                if filter_records_by_type(all_records, "AAAA")[0]["content"] == ipv6_address:
+                    logging.info("AAAA record is up-to-date")
+                else:
+                    logging.info("AAAA record is outdated")
+                    records_to_update.append(new_record(
+                        fqdn, "AAAA", ipv6_address, 60))
             else:
-                print("AAAA record is outdated")
-                records_to_update.append(new_record(
+                logging.info("No AAAA record found")
+                records_to_create.append(new_record(
                     fqdn, "AAAA", ipv6_address, 60))
         else:
-            print("No AAAA record found")
-            records_to_create.append(new_record(
-                fqdn, "AAAA", ipv6_address, 60))
+            logging.info("Could not find a public IPv6 address on this system")
 
     if (len(records_to_create) > 0):
         post_new_records(zone["id"], records_to_create)
@@ -138,8 +145,11 @@ def get_ipv4_address():
 
 def get_ipv6_address(interface_name):
     ip_output = subprocess.getoutput(f"ip -6 -o address show dev {interface_name} scope global | grep --invert temporary | grep --invert mngtmpaddr")
-    ip_output_regex = r"(?:inet6)(?:\s+)(.+)(?:\/\d{1,3})"
-    return re.search(ip_output_regex, ip_output, re.IGNORECASE).group(1)
+    if ip_output != "":
+        ip_output_regex = r"(?:inet6)(?:\s+)(.+)(?:\/\d{1,3})"
+        return re.search(ip_output_regex, ip_output, re.IGNORECASE).group(1)
+    else:
+        return ""
 
 
 def get_zone(domain):
