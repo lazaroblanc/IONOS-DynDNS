@@ -135,8 +135,10 @@ def main():
 
 
 def get_domain_from_fqdn(fqdn):
-    regex = r"(?:(?:\w|-)+\.)+(\w+\.\w+)$"
-    return re.search(regex, fqdn, re.IGNORECASE).group(1)
+    # Place the hyphen at the start of the character class to avoid misinterpretation
+    regex = r"(?:(?:[\w-]+)\.)+([\w-]+\.\w+)$"
+    match = re.search(regex, fqdn, re.IGNORECASE)
+    return match.group(1) if match else None
 
 
 def get_ipv4_address():
